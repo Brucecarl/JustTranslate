@@ -15,22 +15,15 @@ struct DeepSeekResponse: Codable, Sendable {
 final class DeepSeekService: Sendable {
     static let shared = DeepSeekService()
 
-    // API Key 加载策略：优先从 UserDefaults (`DeepSeekAPIKey`)，其次从环境变量 `DEEPSEEK_API_KEY`。
-    private var apiKey: String? {
-        // if let key = UserDefaults.standard.string(forKey: "DeepSeekAPIKey"), !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        //     return key
-        // }
-        // if let env = ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"], !env.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        //     return env
-        // }
-        return "sk-e28fbe447b8a47528a3d508f4b9eaa58"
-    }
+    // DeepSeekService no longer stores an API key internally; callers must provide apiKey & prompt via parameters.
 
     private let apiUrl = URL(string: "https://api.deepseek.com/chat/completions")!
 
-    func translate(text: String) async throws -> String {
-        guard let key = apiKey, !key.isEmpty else {
-            throw NSError(domain: "DeepSeekService", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing DeepSeek API Key. Set DEEPSEEK_API_KEY or DeepSeekAPIKey in UserDefaults."])
+    /// 翻译文本，调用方需提供 `apiKey` 与可选 `prompt`（若 `prompt` 为空则使用默认提示）
+    func translate(text: String, apiKey: String?, prompt: String?) async throws -> String {
+        let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !key.isEmpty else {
+            throw NSError(domain: "DeepSeekService", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing DeepSeek API Key. Provide via Translator.config.apiKey."])
         }
 
         var request = URLRequest(url: apiUrl)
@@ -39,18 +32,18 @@ final class DeepSeekService: Sendable {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 15
 
-        let prompt = """
-        Translate the following text into Simplified Chinese. 
-        If it is already Chinese, translate to English.
-        Provide ONLY the translation.
-        Text: \(text)
-        """
+        let usedPrompt: String
+        if let p = prompt, !p.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            usedPrompt = p+text
+        } else {
+            usedPrompt = "You are an export translator.Translate the following text between Simplified Chinese and English. Provide only the translation. Text:\(text)"
+        }
 
         let body: [String: Any] = [
             "model": "deepseek-chat",
             "messages": [
                 ["role": "system", "content": "You are a helpful translator."],
-                ["role": "user", "content": prompt]
+                ["role": "user", "content": usedPrompt]
             ],
             "stream": false
         ]
@@ -76,9 +69,14 @@ final class DeepSeekService: Sendable {
 /// DeepSeek 翻译器，封装 DeepSeekService 调用
 final class DeepSeekTranslator: Translator {
     let name: String = "DeepSeek"
+    var config: TranslatorConfig
+
+    init(config: TranslatorConfig = TranslatorConfig()) {
+        self.config = config
+    }
 
     func translate(text: String) async throws -> String? {
-        let res = try await DeepSeekService.shared.translate(text: text)
+        let res = try await DeepSeekService.shared.translate(text: text, apiKey: config.apiKey, prompt: config.prompt)
         return res
     }
 }

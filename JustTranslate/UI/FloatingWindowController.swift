@@ -43,12 +43,35 @@ class FloatingWindowController: NSObject {
         // 简单的防闪烁处理
         window.alphaValue = 0
 
-        // 重新定位
+        // 重新定位并确保窗口不会跑到屏幕外
         let windowSize = window.frame.size
         // 向上偏移一点，避免遮挡光标
-        let x = point.x + 20
-        let y = point.y - windowSize.height - 10
-        window.setFrameOrigin(NSPoint(x: x, y: y))
+        var desiredX = point.x + 20
+        var desiredY = point.y - windowSize.height - 10
+
+        // 找到鼠标所在的屏幕（fallback 到主屏幕）
+        let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
+        if let visible = screen?.visibleFrame {
+            let minX = visible.minX
+            let maxX = visible.maxX - windowSize.width
+            let minY = visible.minY
+            let maxY = visible.maxY - windowSize.height
+
+            // 如果窗口比可见区域宽/高，居中显示在可见区域
+            if windowSize.width >= visible.width {
+                desiredX = visible.minX + (visible.width - windowSize.width) / 2
+            } else {
+                desiredX = min(max(desiredX, minX), maxX)
+            }
+
+            if windowSize.height >= visible.height {
+                desiredY = visible.minY + (visible.height - windowSize.height) / 2
+            } else {
+                desiredY = min(max(desiredY, minY), maxY)
+            }
+        }
+
+        window.setFrameOrigin(NSPoint(x: desiredX, y: desiredY))
 
         // 显示窗口
         window.makeKeyAndOrderFront(nil)

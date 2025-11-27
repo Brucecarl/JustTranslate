@@ -19,7 +19,7 @@ struct JustTranslateApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            TranslatorSettingsView()
         }
     }
 }
@@ -28,26 +28,69 @@ struct JustTranslateApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var windowController: FloatingWindowController?
-    var monitor: Any?
-    // 翻译器列表：支持任意数量的 Translator 实现
-    private let translators: [any Translator] = [
-        SystemDictTranslator(),
-        DeepSeekTranslator()
-    ]
+    var settingsWindowController: SettingsWindowController?
+    var pollingTimer: Timer?
+    var lastSelectedText: String?
+    var selected:Bool = false
+    // Global mouse-up event monitor token
+    var globalMouseUpMonitor: Any?
+    // Global single-click monitor token (for closing the popup when clicking outside)
+    var globalClickMonitor: Any?
+    // 翻译器列表：支持任意数量的 Translator 实现（在 `applicationDidFinishLaunching` 中初始化，以便从配置加载）
+    private var translators: [any Translator] = []
+
+    // Expose names and update helper for Settings UI
+    func translatorNames() -> [String] {
+        return translators.map { $0.name }
+    }
+
+    func updateTranslators(with mapping: [String: TranslatorConfig]) {
+        for i in translators.indices {
+            var t = translators[i]
+            if let cfg = mapping[t.name] {
+                t.config = cfg
+                translators[i] = t
+            }
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 1. 初始化 UI
         setupMenuBar()
         windowController = FloatingWindowController()
         
-        // 2. 检查权限 (延迟执行以确保 UI 准备好)
+        // 2. 从配置文件加载每个翻译器的 config（如果存在）并初始化 translators
+        let configs = TranslatorConfigLoader.load()
+
+        var loaded: [any Translator] = []
+
+        // 始终包含系统词典
+        let sys = SystemDictTranslator()
+        loaded.append(sys)
+
+        // 如果以后支持更多翻译器，可在此遍历 `configs` 并根据键名构造对应 Translator
+        for (name, _) in configs {
+            if name == "DeepSeek" { 
+                loaded.append(DeepSeekTranslator(config: configs[name]!))
+            }else{
+                // 未知配置项：目前仅记录以便诊断
+                print("Unknown translator in config: \(name)")
+            }
+            
+        }
+
+        self.translators = loaded
+
+        // 3. 检查权限 (延迟执行以确保 UI 准备好)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.checkAccessibilityPermissions()
         }
-
-        // 3. 开始监听
+        
+        // 4. 开始监听（包括全局点击与基于 Accessibility 的回调）
         startMonitoring()
     }
+    
+    // Polling-based selection detection (fallback / original behavior)
 
     func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -57,6 +100,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "JustTranslator 运行中", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        // 打开应用设置（Preferences / Settings）
+        let settingsItem = NSMenuItem(title: "设置...", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "打开辅助功能设置...", action: #selector(openSystemSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
@@ -70,6 +119,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: urlString) {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc func openSettings() {
+        // Show dedicated Settings window (create if needed)
+        if let controller = settingsWindowController {
+            controller.show()
+            return
+        }
+
+        let controller = SettingsWindowController()
+        settingsWindowController = controller
+        controller.show()
     }
 
     func checkAccessibilityPermissions() {
@@ -92,82 +153,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func startMonitoring() {
-        // 监听全局鼠标抬起事件
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+        
+        globalMouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
             guard let self = self else { return }
-            
-            // 关键修复：检查点击位置是否在当前悬浮窗范围内
-            // 如果窗口正在显示，且鼠标在窗口矩形内，视为对弹窗的操作（如复制文本），不应该隐藏窗口
-            if let window = self.windowController?.window, window.isVisible {
-                let mouseLocation = NSEvent.mouseLocation
-                if window.frame.contains(mouseLocation) {
-                    return // 直接返回，忽略此次“外部”点击处理
-                }
-            }
-            
-            // 单击外部 (clickCount == 1) 且不在窗口内时，隐藏窗口
-            if event.clickCount == 1 {
-                DispatchQueue.main.async {
+            guard let win = self.windowController?.window else { return }
+
+            if win.isVisible {
+                let mouseLoc = NSEvent.mouseLocation
+                if !win.frame.contains(mouseLoc) {
                     self.windowController?.hideWindow()
                 }
-            }
-            
-            // 双击 (clickCount == 2) 时触发翻译
-            if event.clickCount == 2 {
+            }else{
                 self.handleSelection()
             }
+            
         }
     }
 
+    // 保留旧的无参入口以兼容（例如双击触发），委托给新的实现
     func handleSelection() {
-        // 在后台线程获取文本，避免阻塞 UI
         DispatchQueue.global(qos: .userInitiated).async {
-            // 获取文本
-            guard let selectedText = AccessibilityUtils.getSelectedText(),
-                  !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                // 如果没有选中文本，或者点击了空白处，隐藏窗口
+            guard let selectedText = AccessibilityUtils.getSelectedText()?.trimmingCharacters(in: .whitespacesAndNewlines), !selectedText.isEmpty else {
                 DispatchQueue.main.async {
                     self.windowController?.hideWindow()
                 }
                 return
             }
-            
-            // 过滤掉过长的文本 (防止误触或API崩溃)
-            if selectedText.count > 2000 { return }
-            print("selected:\(selectedText)")
+            self.handleSelection(with: selectedText)
+        }
+    }
 
-            DispatchQueue.main.async {
-                // 显示窗口（先不传系统词典结果，后续通过 translator 回填）
-                let mouseLoc = NSEvent.mouseLocation
-                self.windowController?.show(text: selectedText, systemDefinition: nil, at: mouseLoc)
+    func handleSelection(with selectedText: String) {
+        if selectedText.count > 2000 { return }
+        print("selected:\(selectedText)")
 
-                // 并行触发所有翻译器请求：先将所有译者标记为 loading，再为每个译者创建独立 Task
-                let localTranslators = self.translators
-                // 在主线程一次性标记全部为 loading，避免 UI 抖动
-                for t in localTranslators {
-                    self.windowController?.markLoading(name: t.name, isLoading: true)
-                }
+        DispatchQueue.main.async {
+            let mouseLoc = NSEvent.mouseLocation
+            self.windowController?.show(text: selectedText, systemDefinition: nil, at: mouseLoc)
 
-                // 为每个翻译器并发创建任务，完成后立即回填 UI（不需要等待其他译者）
-                for translator in localTranslators {
-                    let localTranslator = translator
-                    Task {
-                        do {
-                            let res = try await localTranslator.translate(text: selectedText)
-                            if let res = res, !res.isEmpty {
-                                await MainActor.run {
-                                    self.windowController?.setTranslation(name: localTranslator.name, content: res, isLoading: false)
-                                }
-                            } else {
-                                await MainActor.run {
-                                    self.windowController?.markLoading(name: localTranslator.name, isLoading: false)
-                                }
-                            }
-                        } catch {
+            let localTranslators = self.translators
+            for t in localTranslators {
+                self.windowController?.markLoading(name: t.name, isLoading: true)
+            }
+
+            for translator in localTranslators {
+                let localTranslator = translator
+                Task {
+                    do {
+                        let res = try await localTranslator.translate(text: selectedText)
+                        if let res = res, !res.isEmpty {
                             await MainActor.run {
-                                let err = "错误：\(error.localizedDescription)"
-                                self.windowController?.setTranslation(name: localTranslator.name, content: err, isLoading: false)
+                                self.windowController?.setTranslation(name: localTranslator.name, content: res, isLoading: false)
                             }
+                        } else {
+                            await MainActor.run {
+                                self.windowController?.markLoading(name: localTranslator.name, isLoading: false)
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            let err = "错误：\(error.localizedDescription)"
+                            self.windowController?.setTranslation(name: localTranslator.name, content: err, isLoading: false)
                         }
                     }
                 }
@@ -176,9 +222,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     deinit {
-        if let monitor = monitor {
-            NSEvent.removeMonitor(monitor)
+        if let token = globalMouseUpMonitor {
+            NSEvent.removeMonitor(token)
+            globalMouseUpMonitor = nil
         }
+        pollingTimer?.invalidate()
+        pollingTimer = nil
     }
 }
 

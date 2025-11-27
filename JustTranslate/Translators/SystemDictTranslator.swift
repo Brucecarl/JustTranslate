@@ -49,6 +49,7 @@ class AccessibilityUtils {
 /// 使用系统词典作为翻译/定义提供者
 final class SystemDictTranslator: Translator {
     let name: String = "System"
+    var config: TranslatorConfig = TranslatorConfig()
 
     func translate(text: String) async throws -> String? {
         // 调用同步 API，快速返回
