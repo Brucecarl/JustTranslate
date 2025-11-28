@@ -70,10 +70,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 如果以后支持更多翻译器，可在此遍历 `configs` 并根据键名构造对应 Translator
         for (name, _) in configs {
-            if name == "DeepSeek" { 
+            if name=="System"{
+                continue
+            }else if name == "DeepSeek" { 
                 loaded.append(DeepSeekTranslator(config: configs[name]!))
             }else{
-                // 未知配置项：目前仅记录以便诊断
                 print("Unknown translator in config: \(name)")
             }
             
@@ -185,7 +186,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func handleSelection(with selectedText: String) {
         if selectedText.count > 2000 { return }
-        print("selected:\(selectedText)")
+        print("Select text:\(selectedText)")
 
         DispatchQueue.main.async {
             let mouseLoc = NSEvent.mouseLocation
@@ -202,6 +203,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     do {
                         let res = try await localTranslator.translate(text: selectedText)
                         if let res = res, !res.isEmpty {
+                            print("Translation(\(localTranslator.name)): \(res.prefix(200))...")
                             await MainActor.run {
                                 self.windowController?.setTranslation(name: localTranslator.name, content: res, isLoading: false)
                             }
