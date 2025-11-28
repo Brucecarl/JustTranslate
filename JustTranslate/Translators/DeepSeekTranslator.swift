@@ -19,7 +19,7 @@ final class DeepSeekService: Sendable {
 
     private let apiUrl = URL(string: "https://api.deepseek.com/chat/completions")!
 
-    /// 翻译文本，调用方需提供 `apiKey` 与可选 `prompt`（若 `prompt` 为空则使用默认提示）
+    /// Translates text, the caller needs to provide an `apiKey` and an optional `prompt` (if the `prompt` is empty, the default prompt is used)
     func translate(text: String, apiKey: String?, prompt: String?) async throws -> String {
         let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !key.isEmpty else {
@@ -66,7 +66,7 @@ final class DeepSeekService: Sendable {
     }
 }
 
-/// DeepSeek 翻译器，封装 DeepSeekService 调用
+/// DeepSeek translator, encapsulates DeepSeekService calls
 final class DeepSeekTranslator: Translator {
     let name: String = "DeepSeek"
     var config: TranslatorConfig

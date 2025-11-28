@@ -36,7 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var globalMouseUpMonitor: Any?
     // Global single-click monitor token (for closing the popup when clicking outside)
     var globalClickMonitor: Any?
-    // 翻译器列表：支持任意数量的 Translator 实现（在 `applicationDidFinishLaunching` 中初始化，以便从配置加载）
+    // Translator list: Supports any number of Translator implementations (initialized in `applicationDidFinishLaunching` to load from configuration)
     private var translators: [any Translator] = []
 
     // Expose names and update helper for Settings UI
@@ -55,20 +55,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 1. 初始化 UI
+        // 1. Initialize UI
         setupMenuBar()
         windowController = FloatingWindowController()
         
-        // 2. 从配置文件加载每个翻译器的 config（如果存在）并初始化 translators
+        // 2. Load the config for each translator from the configuration file (if it exists) and initialize the translators
         let configs = TranslatorConfigLoader.load()
 
         var loaded: [any Translator] = []
 
-        // 始终包含系统词典
+        // Always include the system dictionary
         let sys = SystemDictTranslator()
         loaded.append(sys)
 
-        // 如果以后支持更多翻译器，可在此遍历 `configs` 并根据键名构造对应 Translator
+        // If more translators are supported in the future, you can iterate through `configs` here and construct the corresponding Translator based on the key name
         for (name, _) in configs {
             if name=="System"{
                 continue
@@ -82,12 +82,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.translators = loaded
 
-        // 3. 检查权限 (延迟执行以确保 UI 准备好)
+        // 3. Check permissions (delay execution to ensure UI is ready)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.checkAccessibilityPermissions()
         }
         
-        // 4. 开始监听（包括全局点击与基于 Accessibility 的回调）
+        // 4. Start monitoring (including global clicks and Accessibility-based callbacks)
         startMonitoring()
     }
     
@@ -100,17 +100,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "JustTranslator 运行中", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "JustTranslator is running", action: nil, keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        // 打开应用设置（Preferences / Settings）
-        let settingsItem = NSMenuItem(title: "设置...", action: #selector(openSettings), keyEquivalent: ",")
+        // Open application settings (Preferences / Settings)
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "打开辅助功能设置...", action: #selector(openSystemSettings), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open Accessibility Settings...", action: #selector(openSystemSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Exit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
     }
 
@@ -140,11 +140,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         if !accessEnabled {
             let alert = NSAlert()
-            alert.messageText = "缺少辅助功能权限"
-            alert.informativeText = "本应用需要【辅助功能】权限才能读取您选中的文本进行翻译。\n\n1. 点击“打开设置”\n2. 在列表中勾选此应用\n3. 重启应用"
+            alert.messageText = "Missing Accessibility Permissions"
+            alert.informativeText = "This application requires [Accessibility] permission to read the text you have selected for translation.\n\n1. Click 'Open Settings'\n2. Check this application in the list\n3. Restart the application"
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "打开设置")
-            alert.addButton(withTitle: "忽略")
+            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Ignore")
             
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
@@ -171,7 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // 保留旧的无参入口以兼容（例如双击触发），委托给新的实现
+    // Keep the old parameterless entry for compatibility (e.g., triggered by double-click), delegate to the new implementation
     func handleSelection() {
         DispatchQueue.global(qos: .userInitiated).async {
             guard let selectedText = AccessibilityUtils.getSelectedText()?.trimmingCharacters(in: .whitespacesAndNewlines), !selectedText.isEmpty else {
@@ -214,7 +214,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         }
                     } catch {
                         await MainActor.run {
-                            let err = "错误：\(error.localizedDescription)"
+                            let err = "Error: \(error.localizedDescription)"
                             self.windowController?.setTranslation(name: localTranslator.name, content: err, isLoading: false)
                         }
                     }

@@ -73,8 +73,7 @@ struct TranslationPopupView: View {
                                 HStack {
                                     ProgressView()
                                         .scaleEffect(0.5)
-                                    Text("正在加载...")
-                                        .font(.caption)
+                                                                         Text("Loading...")                                        .font(.caption)
                                         .foregroundColor(.white.opacity(0.7))
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)

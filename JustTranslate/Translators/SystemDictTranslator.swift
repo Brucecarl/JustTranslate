@@ -5,25 +5,25 @@ import CoreServices
 // MARK: - Accessibility & Dictionary Utilities
 class AccessibilityUtils {
     static func getSelectedText() -> String? {
-        // 0. 安全检查：如果没权限，直接返回，避免触发系统级错误日志
+        // 0. Security check: if there is no permission, return directly to avoid triggering system-level error logs
         guard AXIsProcessTrusted() else { return nil }
 
-        // 1. 获取系统级 Accessibility 对象
+        // 1. Get system-level Accessibility object
         let systemWide = AXUIElementCreateSystemWide()
         var focusedElement: CFTypeRef?
 
-        // 2. 获取当前焦点元素 (使用 CFTypeRef 指针，避免 AnyObject 桥接问题)
+        // 2. Get the current focus element (use CFTypeRef pointer to avoid AnyObject bridging problems)
         let error = AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement)
 
-        // 确保获取成功且元素存在
+        // Make sure the acquisition is successful and the element exists
         guard error == .success, let element = focusedElement else { return nil }
 
         var selectedTextValue: CFTypeRef?
 
-        // 3. 尝试获取该元素的选中文本 (强制转换为 AXUIElement)
+        // 3. Try to get the selected text of this element (force cast to AXUIElement)
         let textError = AXUIElementCopyAttributeValue(element as! AXUIElement, kAXSelectedTextAttribute as CFString, &selectedTextValue)
 
-        // 4. 安全转换为 String
+        // 4. Safely convert to String
         if textError == .success, let text = selectedTextValue as? String {
             return text
         }
@@ -32,13 +32,13 @@ class AccessibilityUtils {
     }
 
     static func getDefinition(for text: String) -> String? {
-        // 空字符串或过长字符串可能导致 CoreServices 内部解码错误
+        // Empty or too long strings may cause internal decoding errors in CoreServices
         if text.isEmpty || text.count > 1000 { return nil }
 
-        // 使用 utf16 长度创建 Range，确保 emoji 不会破坏索引
+        // Use utf16 length to create a Range to ensure that emoji will not break the index
         let range = CFRangeMake(0, text.utf16.count)
 
-        // DCSCopyTextDefinition 可能会在某些特殊字符上失败，这里我们做了基本的安全防护
+        // DCSCopyTextDefinition may fail on some special characters, here we have done basic security protection
         if let definition = DCSCopyTextDefinition(nil, text as CFString, range) {
             return definition.takeRetainedValue() as String
         }
@@ -46,13 +46,13 @@ class AccessibilityUtils {
     }
 }
 
-/// 使用系统词典作为翻译/定义提供者
+/// Use system dictionary as translation/definition provider
 final class SystemDictTranslator: Translator {
     let name: String = "System"
     var config: TranslatorConfig = TranslatorConfig()
 
     func translate(text: String) async throws -> String? {
-        // 调用同步 API，快速返回
+        // Call the sync API for a quick return
         return AccessibilityUtils.getDefinition(for: text)
     }
 }
